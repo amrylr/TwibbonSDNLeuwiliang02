@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Twibbon Image Editor</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+    <h1 class="text-3xl font-bold mb-6">Twibbon Image Editor</h1>
+
+    <div class="grid gap-4 w-full max-w-xl">
+      <!-- Photo upload -->
+      <label class="block">
+        <span class="text-lg font-medium">Upload Photo</span>
+        <input
+          id="photoInput"
+          type="file"
+          accept="image/*"
+          class="mt-2 block w-full text-sm text-gray-900 file:mr-4 file:rounded-md file:border-0 file:bg-blue-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-blue-700"
+        />
+      </label>
+
+      <!-- Twibbon upload -->
+      <label class="block">
+        <span class="text-lg font-medium">Upload Twibbon (PNG with transparent center)</span>
+        <input
+          id="twibbonInput"
+          type="file"
+          accept="image/png"
+          class="mt-2 block w-full text-sm text-gray-900 file:mr-4 file:rounded-md file:border-0 file:bg-green-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-green-700"
+        />
+      </label>
+
+      <!-- Canvas preview -->
+      <div class="flex justify-center relative">
+        <canvas id="canvas" class="border rounded-lg shadow-lg cursor-grab"></canvas>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex gap-4 items-center">
+        <label class="flex-1">Zoom
+          <input id="zoomSlider" type="range" min="0.5" max="3" step="0.01" value="1" class="w-full" />
+        </label>
+        <button id="resetBtn" class="bg-gray-300 hover:bg-gray-400 rounded px-3 py-1">Reset</button>
+      </div>
+
+      <!-- Download button -->
+      <button
+        id="downloadBtn"
+        class="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded-lg disabled:opacity-50"
+        disabled
+      >
+        Download Combined Image
+      </button>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+      const photoInput = document.getElementById("photoInput");
+      const twibbonInput = document.getElementById("twibbonInput");
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const zoomSlider = document.getElementById("zoomSlider");
+      const resetBtn = document.getElementById("resetBtn");
+
+      // Store images
+      let photoImg = null;
+      let twibbonImg = null;
+
+      // Transform state
+      let scale = 1;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      // Drag helpers
+      let isDragging = false;
+      let dragStart = { x: 0, y: 0 };
+      let dragOffsetStart = { x: 0, y: 0 };
+
+      // Helper: load file as Image object
+      function loadFileAsImage(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = reader.result;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function handlePhotoChange(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          photoImg = await loadFileAsImage(file);
+          resetTransform();
+          renderCanvas();
+        } catch (err) {
+          alert("Error loading photo: " + err);
+        }
+      }
+
+      async function handleTwibbonChange(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          twibbonImg = await loadFileAsImage(file);
+          renderCanvas();
+        } catch (err) {
+          alert("Error loading twibbon: " + err);
+        }
+      }
+
+      function resetTransform() {
+        scale = 1;
+        offsetX = 0;
+        offsetY = 0;
+        zoomSlider.value = 1;
+      }
+
+      function renderCanvas() {
+        if (!photoImg || !twibbonImg) {
+          // Need both images to render
+          downloadBtn.disabled = true;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          return;
+        }
+
+        // Set canvas dimensions to match twibbon
+        canvas.width = twibbonImg.width;
+        canvas.height = twibbonImg.height;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Calculate scaled dimensions of photo
+        const baseScale = Math.max(canvas.width / photoImg.width, canvas.height / photoImg.height);
+        const finalScale = baseScale * scale;
+        const imgW = photoImg.width * finalScale;
+        const imgH = photoImg.height * finalScale;
+
+        const drawX = (canvas.width - imgW) / 2 + offsetX;
+        const drawY = (canvas.height - imgH) / 2 + offsetY;
+
+        ctx.drawImage(photoImg, drawX, drawY, imgW, imgH);
+
+        // Draw twibbon overlay
+        ctx.drawImage(twibbonImg, 0, 0);
+
+        downloadBtn.disabled = false;
+      }
+
+      function downloadImage() {
+        const link = document.createElement("a");
+        link.download = "twibboned.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      }
+
+      // Canvas interactions
+      canvas.addEventListener("mousedown", (e) => {
+        if (!photoImg || !twibbonImg) return;
+        isDragging = true;
+        canvas.classList.add("cursor-grabbing");
+        dragStart = { x: e.offsetX, y: e.offsetY };
+        dragOffsetStart = { x: offsetX, y: offsetY };
+      });
+
+      canvas.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        offsetX = dragOffsetStart.x + (e.offsetX - dragStart.x);
+        offsetY = dragOffsetStart.y + (e.offsetY - dragStart.y);
+        renderCanvas();
+      });
+
+      window.addEventListener("mouseup", () => {
+        isDragging = false;
+        canvas.classList.remove("cursor-grabbing");
+      });
+
+      // Wheel zoom
+      canvas.addEventListener("wheel", (e) => {
+        if (!photoImg || !twibbonImg) return;
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.05 : 0.05;
+        scale = Math.min(3, Math.max(0.5, scale + delta));
+        zoomSlider.value = scale;
+        renderCanvas();
+      });
+
+      // Slider zoom
+      zoomSlider.addEventListener("input", (e) => {
+        scale = parseFloat(e.target.value);
+        renderCanvas();
+      });
+
+      // Reset button
+      resetBtn.addEventListener("click", () => {
+        resetTransform();
+        renderCanvas();
+      });
+
+      // Event listeners for file inputs and download
+      photoInput.addEventListener("change", handlePhotoChange);
+      twibbonInput.addEventListener("change", handleTwibbonChange);
+      downloadBtn.addEventListener("click", downloadImage);
+    </script>
+  </body>
+</html>
